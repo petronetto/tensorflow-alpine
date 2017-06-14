@@ -33,6 +33,8 @@ RUN echo "http://dl-2.alpinelinux.org/alpine/edge/community" >> /etc/apk/reposit
 # the other runtime dependencies for Python are installed later
 RUN apk add --no-cache ca-certificates
 
+RUN apk add -U --no-cache apk-tools-static busybox-static
+
 # Setup de basic requeriments
 RUN apk add --no-cache python3 && \
     python3 -m ensurepip && \
@@ -40,7 +42,7 @@ RUN apk add --no-cache python3 && \
     pip3 --no-cache-dir install --upgrade pip setuptools
 
 # Dev dependencies and others stuffs...
-RUN apk add --no-cache tini libstdc++ gcc freetype zlib jpeg libpng graphviz && \
+RUN apk add --no-cache tini libstdc++ gcc musl freetype zlib jpeg libpng graphviz && \
     apk add --no-cache \
         --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
         lapack-dev && \
@@ -63,7 +65,7 @@ RUN pip --no-cache-dir install 'xgboost'
 RUN pip --no-cache-dir install 'jupyter'
 
 # TensorFlow
-RUN pip --no-cache-dir install --upgrade https://storage.googleapis.com/tensorflow/linux/gpu/tensorflow_gpu-1.1.0-cp35-cp35m-linux_x86_64.whl
+RUN pip --no-cache-dir install --upgrade https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.1.0-cp35-cp35m-linux_x86_64.whl
 
 # Cleaning
 RUN pip uninstall --yes cython && \
