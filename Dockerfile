@@ -22,57 +22,99 @@
 
 FROM alpine:3.5
 
-MAINTAINER Juliano Petronetto <juliano.petronetto@gmail.com>
+ENV JAVA_HOME /usr/lib/jvm/java-1.8-openjdk
+ENV LOCAL_RESOURCES 2048,.8,1.0
 
-RUN echo "http://dl-2.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories; \
-    echo "http://dl-3.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories; \
-    echo "http://dl-4.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories; \
-    echo "http://dl-5.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+ENV BAZEL_VERSION 0.4.5
+ENV TENSORFLOW_VERSION 1.1.0
 
-# install ca-certificates so that HTTPS works consistently
-# the other runtime dependencies for Python are installed later
-RUN apk add --no-cache ca-certificates
-
-RUN apk add -U --no-cache apk-tools-static busybox-static
-
-# Setup de basic requeriments
-RUN apk add --no-cache python3 && \
-    python3 -m ensurepip && \
-    rm -r /usr/lib/python*/ensurepip && \
-    pip3 --no-cache-dir install --upgrade pip setuptools
-
-# Dev dependencies and others stuffs...
-RUN apk add --no-cache tini libstdc++ gcc musl freetype zlib jpeg libpng graphviz && \
-    apk add --no-cache \
-        --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
-        lapack-dev && \
-    apk add --no-cache \
-        --virtual=.build-dependencies \
-        g++ gfortran musl-dev pkgconfig freetype-dev jpeg-dev zlib-dev libpng-dev make \
-        python3-dev libc-dev && \
-    ln -s locale.h /usr/include/xlocale.h
-
-# Python packages
-RUN pip --no-cache-dir install -U 'pip'
-RUN pip --no-cache-dir install 'cython'
-RUN pip --no-cache-dir install 'numpy'
-RUN pip --no-cache-dir install 'scipy'
-RUN pip --no-cache-dir install 'pandas'
-RUN pip --no-cache-dir install 'scikit-learn'
-RUN pip --no-cache-dir install 'matplotlib'
-RUN pip --no-cache-dir install 'seaborn'
-RUN pip --no-cache-dir install 'xgboost'
-RUN pip --no-cache-dir install 'jupyter'
-
-# TensorFlow
-RUN pip --no-cache-dir install --upgrade https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.1.0-cp35-cp35m-linux_x86_64.whl
-
-# Cleaning
-RUN pip uninstall --yes cython && \
-    rm /usr/include/xlocale.h && \
-    rm -rf /root/.cache && \
-    rm -rf /var/cache/apk/* && \
-    apk del .build-dependencies
+RUN apk add --no-cache \
+        python3 \
+        freetype \
+        lapack \
+        libgfortran \
+        libpng \
+        libjpeg-turbo \
+        imagemagick \
+        gcc \
+        graphviz
+RUN apk add --no-cache --virtual=.build-deps \
+        bash \
+        cmake \
+        curl \
+        freetype-dev \
+        g++ \
+        gfortran \
+        lapack-dev \
+        libjpeg-turbo-dev \
+        libpng-dev \
+        linux-headers \
+        make \
+        musl-dev \
+        openjdk8 \
+        perl \
+        python3-dev \
+        rsync \
+        sed \
+        swig \
+        zip \
+    && : prepare for building TensorFlow \
+    && : install numpy and wheel python module \
+    && cd /tmp \
+    && : numpy requires xlocale.h but it is not provided by musl-libc so just copy it from locale.h \
+    && $(cd /usr/include/ && ln -s locale.h xlocale.h) \
+    && pip3 install --no-cache-dir numpy wheel \
+    && : \
+    && : install Bazel to build TensorFlow \
+    && curl -SLO https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-dist.zip \
+    && mkdir bazel-${BAZEL_VERSION} \
+    && unzip -qd bazel-${BAZEL_VERSION} bazel-${BAZEL_VERSION}-dist.zip \
+    && cd bazel-${BAZEL_VERSION} \
+    && : add -fpermissive compiler option to avoid compilation failure \
+    && sed -i -e '/"-std=c++0x"/{h;s//"-fpermissive"/;x;G}' tools/cpp/cc_configure.bzl \
+    && : add '#include <sys/stat.h>' to avoid mode_t type error \
+    && sed -i -e '/#endif  \/\/ COMPILER_MSVC/{h;s//#else/;G;s//#include <sys\/stat.h>/;G;}' third_party/ijar/common.h \
+    && bash compile.sh \
+    && cp -p output/bazel /usr/bin/ \
+    && : \
+    && : build TensorFlow pip package \
+    && cd /tmp \
+    && curl -SL https://github.com/tensorflow/tensorflow/archive/v${TENSORFLOW_VERSION}.tar.gz \
+        | tar xzf - \
+    && cd tensorflow-${TENSORFLOW_VERSION} \
+    && : add python symlink to avoid python detection error in configure \
+    && $(cd /usr/bin && ln -s python3 python) \
+    && : musl-libc does not have "secure_getenv" function \
+    && sed -i -e '/JEMALLOC_HAVE_SECURE_GETENV/d' third_party/jemalloc.BUILD \
+    && : use protobuf build error fixed version \
+    && sed -i -e 's/2b7430d96aeff2bb624c8d52182ff5e4b9f7f18a/af2d5f5ad3808b38ea58c9880be1b81fd2a89278/' \
+        -e 's/e5d3d4e227a0f7afb8745df049bbd4d55474b158ca5aaa2a0e31099af24be1d0/89fb700e6348a07829fac5f10133e44de80f491d1f23bcc65cba072c3b374525/' \
+            tensorflow/workspace.bzl \
+    && echo | PYTHON_BIN_PATH=/usr/bin/python \
+                CC_OPT_FLAGS="-march=native" \
+                TF_NEED_JEMALLOC=1 \
+                TF_NEED_GCP=0 \
+                TF_NEED_HDFS=0 \
+                TF_NEED_OPENCL=0 \
+                TF_NEED_CUDA=0 \
+                TF_ENABLE_XLA=0 \
+                bash configure \
+    && bazel build -c opt --local_resources ${LOCAL_RESOURCES} //tensorflow/tools/pip_package:build_pip_package \
+    && ./bazel-bin/tensorflow/tools/pip_package/build_pip_package /tmp/tensorflow_pkg \
+    && : \
+    && : install python modules including TensorFlow \
+    && cd \
+    && pip3 install --no-cache-dir /tmp/tensorflow_pkg/tensorflow-${TENSORFLOW_VERSION}-cp35-cp35m-linux_x86_64.whl \
+    && pip3 install --no-cache-dir pandas scipy jupyter \
+    && pip3 install --no-cache-dir scikit-learn matplotlib Pillow \
+    && pip3 install --no-cache-dir seaborn \
+    && pip3 install --no-cache-dir xgboost \
+    && pip3 install --no-cache-dir google-api-python-client \
+    && : \
+    && : clean up unneeded packages and files \
+    && apk del .build-deps \
+    && rm -f /usr/bin/bazel \
+    && rm -rf /tmp/* /root/.cache
 
 # Create nbuser user with UID=1000 and in the 'users' group
 RUN adduser -G users -u 1000 -s /bin/sh -D nbuser && \
@@ -95,7 +137,5 @@ EXPOSE 8888
 WORKDIR /home/nbuser/notebooks
 
 USER nbuser
-
-ENTRYPOINT ["/sbin/tini", "--"]
 
 CMD ["/start.sh"]
