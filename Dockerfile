@@ -22,9 +22,6 @@
 
 FROM alpine:3.5
 
-ENV JAVA_HOME /usr/lib/jvm/java-1.8-openjdk
-ENV LOCAL_RESOURCES 2048,.8,1.0
-
 ENV BAZEL_VERSION 0.4.5
 ENV TENSORFLOW_VERSION 1.1.0
 
@@ -86,7 +83,7 @@ RUN apk add --no-cache --virtual=.build-deps \
                 TF_NEED_CUDA=0 \
                 TF_ENABLE_XLA=0 \
                 bash configure \
-    && bazel build -c opt --local_resources ${LOCAL_RESOURCES} //tensorflow/tools/pip_package:build_pip_package \
+    && bazel build -c opt --local_resources 2048,.8,1.0 //tensorflow/tools/pip_package:build_pip_package \
     && ./bazel-bin/tensorflow/tools/pip_package/build_pip_package /tmp/tensorflow_pkg \
     && cd \
     && pip3 install --no-cache-dir /tmp/tensorflow_pkg/tensorflow-${TENSORFLOW_VERSION}-cp35-cp35m-linux_x86_64.whl \
