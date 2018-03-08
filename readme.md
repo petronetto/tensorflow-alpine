@@ -1,3 +1,5 @@
+# DEPRECATED IN FAVOUR OF https://github.com/petronetto/docker-python-deep-learning
+
 # TensorFlow Alpine
 
 [![](https://images.microbadger.com/badges/image/petronetto/tensorflow-alpine.svg)](https://microbadger.com/images/petronetto/tensorflow-alpine "Get your own image badge on microbadger.com")
